@@ -1,17 +1,8 @@
 {
   "type": "commonjs",
-  "dependencies": {
-    "aws-sdk": "^2.1127.0",
-    "axios": "^0.27.2",
-    "dotenv": "^16.0.0",
-    "module-alias": "^2.2.2",
-    "rimraf": "^3.0.2",
-    "validator": "^13.7.0"
-  },
   "scripts": {
     "lint": "eslint .",
     "lintstaged": "npm run lint -- --fix",
-    "prepare": "husky install",
     "test": "jest --passWithNoTests",
     "test:watch": "npm test -- --watch",
     "test:ci": "npm test -- --coverage",
@@ -19,7 +10,16 @@
     "dev": "ts-node -r dotenv/config src/main/index.ts",
     "clean": "rimraf dist",
     "build": "npm run clean && tsc -p tsconfig-build.json",
-    "start": "node -r dotenv/config dist/main/index"
+    "start": "node -r dotenv/config dist/main/index",
+    "prepare": "husky install"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1127.0",
+    "axios": "^0.27.2",
+    "dotenv": "^16.0.0",
+    "module-alias": "^2.2.2",
+    "rimraf": "^3.0.2",
+    "validator": "^13.7.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.95",
@@ -37,7 +37,7 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^5.2.0",
     "git-commit-msg-linter": "^4.1.2",
-    "husky": "^7.0.4",
+    "husky": "^8.0.1",
     "jest": "^27.5.1",
     "lint-staged": "^12.4.1",
     "ts-jest": "^27.1.4",
