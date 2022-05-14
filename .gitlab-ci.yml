@@ -1,0 +1,72 @@
+variables:  
+  PROJECT_NAME: catalyst
+  LAMBDA_NAME: ${CI_PROJECT_NAME}
+image: jadermorais/runner:latest
+
+stages:
+  - ecr
+  - build
+  - iac
+  - deploy
+
+ecr:
+  stage: ecr
+  environment: $CI_COMMIT_BRANCH
+  tags:
+    - runner
+  script:
+    - if ! aws ecr describe-images --repository-name ${CI_PROJECT_NAME} --region ${AWS_DEFAULT_REGION} 2> /dev/null  ; then aws ecr create-repository --region ${AWS_DEFAULT_REGION} --repository-name ${CI_PROJECT_NAME} --image-scanning-configuration scanOnPush=true ; sleep 30 ; aws ecr put-image --repository-name ${CI_PROJECT_NAME} --image-tag new --image-manifest file://.tf/hello-world.manifest.json ; fi
+     
+build:
+  stage: build
+  environment: $CI_COMMIT_BRANCH
+  tags:
+    - runner
+  before_script:
+    - /usr/local/bin/aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | /bin/docker login --username AWS --password-stdin 029819018629.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+  script:
+    - docker -H ${DOCKER_BUILD} build -t 029819018629.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${CI_PROJECT_NAME}:$CI_COMMIT_SHORT_SHA . || exit 1    
+    - docker -H ${DOCKER_BUILD} push 029819018629.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${CI_PROJECT_NAME}:$CI_COMMIT_SHORT_SHA || exit 1    
+  only:
+    - develop
+    - homolog
+    - main  
+
+terraform:
+  stage: iac  
+  tags: 
+    - runner
+  environment: $CI_COMMIT_BRANCH  
+  variables:    
+    ACTION: apply
+  script:                   
+    - cat .tf/backend_template.txt | envsubst | tee backend.tf     
+    - terraform init
+    - terraform workspace select $CI_COMMIT_BRANCH 2> /dev/null || terraform workspace new $CI_COMMIT_BRANCH
+    - if [[ -z $ACTION ]] ; then export APPROVE="" ; else export APPROVE='-auto-approve' ; fi
+    - terraform ${ACTION:apply} -var lambda_name=$LAMBDA_NAME -var-file=.tf/settings.tfvars -var=cod_version="${CI_COMMIT_SHORT_SHA}" -auto-approve
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: always
+    - when: never
+
+#############    
+## deploy ##
+############ 
+deploy:
+  stage: deploy
+  tags: 
+    - runner
+  #variables:        
+  environment: $CI_COMMIT_BRANCH
+  script:    
+    - aws lambda update-function-code --function-name ${LAMBDA_NAME} --region ${AWS_DEFAULT_REGION}  --image-uri 029819018629.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${CI_PROJECT_NAME}:$CI_COMMIT_SHORT_SHA  ; sleep 30
+    - LAMBDA_VARIABLES=$(echo $LAMBDA_VARIABLES | sed 's/\"//g') 
+    - aws lambda --region ${AWS_DEFAULT_REGION} update-function-configuration --function-name ${LAMBDA_NAME} --environment "Variables=${LAMBDA_VARIABLES}" ; sleep 30
+    - aws lambda publish-version --function-name ${LAMBDA_NAME} --description "${VERSION}" --region ${AWS_DEFAULT_REGION} | tee /tmp/output.json 
+    - ID_VERSION=$(jq -r .Version /tmp/output.json)
+    - aws lambda update-alias --function-name ${LAMBDA_NAME} --name $CI_COMMIT_BRANCH --function-version ${ID_VERSION} --region ${AWS_DEFAULT_REGION} 2> /dev/null || aws lambda create-alias --function-name ${LAMBDA_NAME} --name $CI_COMMIT_BRANCH --function-version ${ID_VERSION} --region ${AWS_DEFAULT_REGION}    
+  only:
+  - develop
+  - homolog
+  - main
